@@ -20,3 +20,4 @@ models/*
 
 # Environment / secrets
 .env
+.venv-dl/

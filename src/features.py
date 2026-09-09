@@ -190,3 +190,17 @@ def build_features(df, benchmark_df=None, vix_df=None):
     df = add_target(df)
 
     return df
+
+def prepare_modeling_data(df, benchmark_df=None, vix_df=None):
+    df = build_features(
+        df,
+        benchmark_df=benchmark_df,
+        vix_df=vix_df,
+    )
+
+    df = df.dropna().copy()
+
+    X = df.drop(columns=["target_return"])
+    y = df["target_return"]
+
+    return X, y, df
