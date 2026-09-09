@@ -63,7 +63,9 @@ def prepare_news_dataframe(
         errors="coerce",
     )
 
-    df = df.dropna(subset=[timestamp_column]).copy()
+    df = df.dropna(
+        subset=[timestamp_column]
+    ).copy()
 
     if summary_column not in df.columns:
         df[summary_column] = ""
@@ -76,7 +78,9 @@ def prepare_news_dataframe(
         axis=1,
     )
 
-    df = df[df["clean_text"].str.len() > 0].copy()
+    df = df[
+        df["clean_text"].str.len() > 0
+    ].copy()
 
     return df
 
@@ -88,16 +92,20 @@ def vader_sentiment(text):
     Returns a score between -1 and +1.
     """
     try:
-        from nltk.sentiment.vader import SentimentIntensityAnalyzer
+        from nltk.sentiment.vader import (
+            SentimentIntensityAnalyzer,
+        )
     except ImportError as exc:
         raise ImportError(
-            "VADER is not installed. Install nltk and download "
-            "the VADER lexicon."
+            "VADER is not installed. Install nltk and "
+            "download the VADER lexicon."
         ) from exc
 
     analyzer = SentimentIntensityAnalyzer()
 
-    scores = analyzer.polarity_scores(str(text))
+    scores = analyzer.polarity_scores(
+        str(text)
+    )
 
     return scores["compound"]
 
@@ -116,10 +124,10 @@ def add_vader_sentiment(
             f"Missing text column: {text_column}"
         )
 
-    analyzer = None
-
     try:
-        from nltk.sentiment.vader import SentimentIntensityAnalyzer
+        from nltk.sentiment.vader import (
+            SentimentIntensityAnalyzer,
+        )
 
         analyzer = SentimentIntensityAnalyzer()
 
@@ -134,13 +142,17 @@ def add_vader_sentiment(
             "nltk.download('vader_lexicon')."
         ) from exc
 
-    df["VADER_Compound"] = df[text_column].apply(
+    df["VADER_Compound"] = df[
+        text_column
+    ].apply(
         lambda text: analyzer.polarity_scores(
             str(text)
         )["compound"]
     )
 
-    df["VADER_Label"] = df["VADER_Compound"].apply(
+    df["VADER_Label"] = df[
+        "VADER_Compound"
+    ].apply(
         lambda score: (
             "Positive"
             if score >= 0.05
@@ -203,7 +215,12 @@ def aggregate_daily_sentiment(
         daily["Date"]
     )
 
-    return daily.set_index("Date").sort_index()
+    return (
+        daily
+        .set_index("Date")
+        .sort_index()
+    )
+
 
 def finbert_sentiment(
     text,
@@ -226,8 +243,9 @@ def finbert_sentiment(
         model_name
     )
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_name
+    model = (
+        AutoModelForSequenceClassification
+        .from_pretrained(model_name)
     )
 
     device = (
@@ -305,8 +323,9 @@ def add_finbert_sentiment(
         model_name
     )
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_name
+    model = (
+        AutoModelForSequenceClassification
+        .from_pretrained(model_name)
     )
 
     device = (
@@ -359,13 +378,16 @@ def add_finbert_sentiment(
         )
 
         sentiment_scores.append(
-            float(probabilities[predicted_index])
+            float(
+                probabilities[predicted_index]
+            )
         )
 
     df["FinBERT_Label"] = sentiment_labels
     df["FinBERT_Score"] = sentiment_scores
 
     return df
+
 
 def map_news_to_trading_session(
     news_df,
@@ -424,11 +446,11 @@ def map_news_to_trading_session(
 
     df.loc[
         after_close,
-        "Trading_Date"
+        "Trading_Date",
     ] = (
         df.loc[
             after_close,
-            "Trading_Date"
+            "Trading_Date",
         ]
         + pd.Timedelta(days=1)
     )
@@ -439,14 +461,10 @@ def map_news_to_trading_session(
 
     # Map each news date to the first available
     # trading date on or after that date.
-    next_session = pd.Series(
-        trading_dates,
-        index=trading_dates,
-    )
-
     df["Trading_Date"] = (
-        pd.to_datetime(df["Trading_Date"])
-        .map(
+        pd.to_datetime(
+            df["Trading_Date"]
+        ).map(
             lambda date: (
                 trading_dates[
                     trading_dates >= date
@@ -464,3 +482,52 @@ def map_news_to_trading_session(
     return df.dropna(
         subset=["Trading_Date"]
     ).copy()
+
+
+def add_momentum_feature(
+    sentiment_df,
+    price_df,
+    price_column="Close",
+):
+    """
+    Add 3-day price momentum to daily sentiment data.
+
+    Momentum is calculated using only prices available
+    before the corresponding trading session.
+    """
+    sentiment = sentiment_df.copy()
+    prices = price_df.copy()
+
+    prices.index = pd.to_datetime(
+        prices.index
+    )
+
+    prices = prices.sort_index()
+
+    if price_column not in prices.columns:
+        raise ValueError(
+            f"Missing price column: {price_column}"
+        )
+
+    prices["Momentum_3D"] = (
+        prices[price_column].pct_change(3)
+    )
+
+    momentum = prices[
+        "Momentum_3D"
+    ].rename("Momentum_3D")
+
+    sentiment["Trading_Date"] = (
+        pd.to_datetime(
+            sentiment["Trading_Date"]
+        )
+    )
+
+    sentiment = sentiment.merge(
+        momentum,
+        left_on="Trading_Date",
+        right_index=True,
+        how="left",
+    )
+
+    return sentiment
