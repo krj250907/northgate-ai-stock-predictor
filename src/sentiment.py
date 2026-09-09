@@ -583,3 +583,73 @@ def add_news_volume_spike(
     )
 
     return df
+
+def aggregate_finbert_sentiment(
+    news_df,
+    date_column="Trading_Date",
+):
+    """
+    Aggregate FinBERT sentiment by trading session.
+
+    Converts FinBERT labels into a signed sentiment score:
+        positive -> +confidence
+        neutral  -> 0
+        negative -> -confidence
+    """
+    df = news_df.copy()
+
+    required_columns = [
+        date_column,
+        "FinBERT_Label",
+        "FinBERT_Score",
+    ]
+
+    for column in required_columns:
+        if column not in df.columns:
+            raise ValueError(
+                f"Missing required column: {column}"
+            )
+
+    df[date_column] = pd.to_datetime(
+        df[date_column]
+    )
+
+    df["FinBERT_Sentiment"] = (
+        df["FinBERT_Score"]
+        * df["FinBERT_Label"].map(
+            {
+                "positive": 1.0,
+                "neutral": 0.0,
+                "negative": -1.0,
+            }
+        )
+    )
+
+    daily = (
+        df.groupby(date_column)
+        .agg(
+            FinBERT_Sentiment_Mean=(
+                "FinBERT_Sentiment",
+                "mean",
+            ),
+            FinBERT_Sentiment_Std=(
+                "FinBERT_Sentiment",
+                "std",
+            ),
+            FinBERT_News_Volume=(
+                "FinBERT_Sentiment",
+                "count",
+            ),
+        )
+        .reset_index()
+    )
+
+    daily[
+        "FinBERT_Sentiment_Std"
+    ] = daily[
+        "FinBERT_Sentiment_Std"
+    ].fillna(0)
+
+    return daily.sort_values(
+        date_column
+    )
