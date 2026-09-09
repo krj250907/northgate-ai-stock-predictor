@@ -1,0 +1,22 @@
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/raw/*
+data/processed/*
+
+# Trained models
+models/*
+
+# macOS
+.DS_Store
+
+# Environment / secrets
+.env

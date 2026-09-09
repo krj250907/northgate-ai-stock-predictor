@@ -1,0 +1,31 @@
+project:
+  name: "Northgate AI Stock Predictor"
+  seed: 42
+
+data:
+  start_date: "2015-01-01"
+  end_date: null
+
+universe:
+  stocks:
+    - AAPL
+    - MSFT
+    - JPM
+    - XOM
+    - JNJ
+    - PG
+    - NVDA
+    - KO
+    - CAT
+    - HD
+  benchmark: "^GSPC"
+  vix: "^VIX"
+
+paths:
+  raw_data: "data/raw"
+  processed_data: "data/processed"
+  models: "models"
+
+target:
+  horizon: 1
+  column: "target_return"
