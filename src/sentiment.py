@@ -531,3 +531,55 @@ def add_momentum_feature(
     )
 
     return sentiment
+
+def add_news_volume_spike(
+    sentiment_df,
+    window=20,
+    threshold=2.0,
+):
+    """
+    Detect unusually high daily news volume.
+
+    A spike occurs when the current day's news volume
+    is at least `threshold` times the rolling average
+    of the previous `window` days.
+
+    The rolling average excludes the current day to
+    avoid look-ahead.
+    """
+    df = sentiment_df.copy()
+
+    if "News_Volume" not in df.columns:
+        raise ValueError(
+            "News_Volume column is required."
+        )
+
+    df = df.sort_values(
+        "Trading_Date"
+    ).copy()
+
+    rolling_volume = (
+        df["News_Volume"]
+        .shift(1)
+        .rolling(
+            window=window,
+            min_periods=5,
+        )
+        .mean()
+    )
+
+    df["News_Volume_Rolling_Mean"] = (
+        rolling_volume
+    )
+
+    df["News_Volume_Ratio"] = (
+        df["News_Volume"]
+        / rolling_volume
+    )
+
+    df["News_Volume_Spike"] = (
+        df["News_Volume_Ratio"]
+        >= threshold
+    )
+
+    return df
