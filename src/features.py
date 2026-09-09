@@ -146,3 +146,47 @@ def add_target(df, horizon=1):
     df["target_return"] = df["Return_1D"].shift(-horizon)
 
     return df
+
+def add_market_context_features(df, benchmark_df=None, vix_df=None):
+    df = df.copy()
+
+    if benchmark_df is not None:
+        benchmark = benchmark_df[["Close"]].copy()
+        benchmark["Benchmark_Return_1D"] = benchmark["Close"].pct_change()
+
+        df = df.join(
+            benchmark[["Benchmark_Return_1D"]],
+            how="left",
+        )
+
+    if vix_df is not None:
+        vix = vix_df[["Close"]].copy()
+        vix["VIX_Level"] = vix["Close"] / 100.0
+
+        df = df.join(
+            vix[["VIX_Level"]],
+            how="left",
+        )
+
+    return df
+
+def build_features(df, benchmark_df=None, vix_df=None):
+    df = df.copy()
+
+    df = add_return_features(df)
+    df = add_moving_average_features(df)
+    df = add_macd_features(df)
+    df = add_rsi_features(df)
+    df = add_stochastic_features(df)
+    df = add_volatility_features(df)
+    df = add_volume_features(df)
+    df = add_calendar_features(df)
+    df = add_lag_features(df)
+    df = add_market_context_features(
+        df,
+        benchmark_df=benchmark_df,
+        vix_df=vix_df,
+    )
+    df = add_target(df)
+
+    return df
