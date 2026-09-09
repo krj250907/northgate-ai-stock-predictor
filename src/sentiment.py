@@ -204,3 +204,165 @@ def aggregate_daily_sentiment(
     )
 
     return daily.set_index("Date").sort_index()
+
+def finbert_sentiment(
+    text,
+    model_name="ProsusAI/finbert",
+):
+    """
+    Calculate FinBERT financial sentiment.
+
+    Returns:
+        label: positive, negative, or neutral
+        score: model confidence for the predicted label
+    """
+    import torch
+    from transformers import (
+        AutoModelForSequenceClassification,
+        AutoTokenizer,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name
+    )
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name
+    )
+
+    device = (
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+
+    model = model.to(device)
+    model.eval()
+
+    inputs = tokenizer(
+        str(text),
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+    )
+
+    inputs = {
+        key: value.to(device)
+        for key, value in inputs.items()
+    }
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    probabilities = torch.softmax(
+        outputs.logits,
+        dim=-1,
+    )[0]
+
+    predicted_index = int(
+        torch.argmax(probabilities)
+    )
+
+    labels = [
+        model.config.id2label[i].lower()
+        for i in range(
+            len(model.config.id2label)
+        )
+    ]
+
+    label = labels[predicted_index]
+
+    score = float(
+        probabilities[predicted_index]
+    )
+
+    return label, score
+
+
+def add_finbert_sentiment(
+    news_df,
+    text_column="clean_text",
+    model_name="ProsusAI/finbert",
+):
+    """
+    Add FinBERT sentiment labels and confidence
+    scores to a news DataFrame.
+    """
+    df = news_df.copy()
+
+    if text_column not in df.columns:
+        raise ValueError(
+            f"Missing text column: {text_column}"
+        )
+
+    import torch
+    from transformers import (
+        AutoModelForSequenceClassification,
+        AutoTokenizer,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name
+    )
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name
+    )
+
+    device = (
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+
+    model = model.to(device)
+    model.eval()
+
+    labels = [
+        model.config.id2label[i].lower()
+        for i in range(
+            len(model.config.id2label)
+        )
+    ]
+
+    sentiment_labels = []
+    sentiment_scores = []
+
+    for text in df[text_column]:
+
+        inputs = tokenizer(
+            str(text),
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+        )
+
+        inputs = {
+            key: value.to(device)
+            for key, value in inputs.items()
+        }
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        probabilities = torch.softmax(
+            outputs.logits,
+            dim=-1,
+        )[0]
+
+        predicted_index = int(
+            torch.argmax(probabilities)
+        )
+
+        sentiment_labels.append(
+            labels[predicted_index]
+        )
+
+        sentiment_scores.append(
+            float(probabilities[predicted_index])
+        )
+
+    df["FinBERT_Label"] = sentiment_labels
+    df["FinBERT_Score"] = sentiment_scores
+
+    return df
