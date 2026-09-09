@@ -366,3 +366,101 @@ def add_finbert_sentiment(
     df["FinBERT_Score"] = sentiment_scores
 
     return df
+
+def map_news_to_trading_session(
+    news_df,
+    trading_dates,
+    timestamp_column="Datetime",
+):
+    """
+    Map news timestamps to the trading session they can
+    legitimately influence.
+
+    News published after 4:00 PM is assigned to the
+    next available trading session.
+
+    News published before or during market hours is assigned
+    to the current trading session.
+    """
+    df = news_df.copy()
+
+    if timestamp_column not in df.columns:
+        raise ValueError(
+            f"Missing timestamp column: {timestamp_column}"
+        )
+
+    if len(df) == 0:
+        df["Trading_Date"] = pd.Series(
+            dtype="datetime64[ns]"
+        )
+        return df
+
+    df[timestamp_column] = pd.to_datetime(
+        df[timestamp_column],
+        errors="coerce",
+        utc=True,
+    )
+
+    df = df.dropna(
+        subset=[timestamp_column]
+    ).copy()
+
+    # Convert UTC timestamps to US Eastern time.
+    df["Local_Datetime"] = (
+        df[timestamp_column]
+        .dt.tz_convert("America/New_York")
+    )
+
+    df["Trading_Date"] = (
+        df["Local_Datetime"]
+        .dt.normalize()
+        .dt.tz_localize(None)
+    )
+
+    # After 4:00 PM ET -> next trading session.
+    after_close = (
+        df["Local_Datetime"].dt.hour >= 16
+    )
+
+    df.loc[
+        after_close,
+        "Trading_Date"
+    ] = (
+        df.loc[
+            after_close,
+            "Trading_Date"
+        ]
+        + pd.Timedelta(days=1)
+    )
+
+    trading_dates = pd.DatetimeIndex(
+        pd.to_datetime(trading_dates)
+    ).normalize()
+
+    # Map each news date to the first available
+    # trading date on or after that date.
+    next_session = pd.Series(
+        trading_dates,
+        index=trading_dates,
+    )
+
+    df["Trading_Date"] = (
+        pd.to_datetime(df["Trading_Date"])
+        .map(
+            lambda date: (
+                trading_dates[
+                    trading_dates >= date
+                ][0]
+                if len(
+                    trading_dates[
+                        trading_dates >= date
+                    ]
+                )
+                else pd.NaT
+            )
+        )
+    )
+
+    return df.dropna(
+        subset=["Trading_Date"]
+    ).copy()
