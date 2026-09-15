@@ -3,10 +3,15 @@ import re
 import pandas as pd
 
 
+# ============================================================
+# TEXT CLEANING
+# ============================================================
+
 def clean_text(text):
     """
     Clean news text before sentiment analysis.
     """
+
     if pd.isna(text):
         return ""
 
@@ -28,6 +33,7 @@ def combine_headline_summary(headline, summary=""):
     """
     Combine headline and summary into one cleaned text field.
     """
+
     headline = clean_text(headline)
     summary = clean_text(summary)
 
@@ -46,6 +52,7 @@ def prepare_news_dataframe(
     """
     Clean and prepare a news DataFrame.
     """
+
     df = news_df.copy()
 
     if timestamp_column not in df.columns:
@@ -85,12 +92,17 @@ def prepare_news_dataframe(
     return df
 
 
+# ============================================================
+# VADER SENTIMENT
+# ============================================================
+
 def vader_sentiment(text):
     """
     Calculate VADER compound sentiment score.
 
     Returns a score between -1 and +1.
     """
+
     try:
         from nltk.sentiment.vader import (
             SentimentIntensityAnalyzer,
@@ -101,7 +113,13 @@ def vader_sentiment(text):
             "download the VADER lexicon."
         ) from exc
 
-    analyzer = SentimentIntensityAnalyzer()
+    try:
+        analyzer = SentimentIntensityAnalyzer()
+    except LookupError as exc:
+        raise LookupError(
+            "VADER lexicon is missing. Run "
+            "nltk.download('vader_lexicon')."
+        ) from exc
 
     scores = analyzer.polarity_scores(
         str(text)
@@ -117,6 +135,7 @@ def add_vader_sentiment(
     """
     Add VADER sentiment scores to a news DataFrame.
     """
+
     df = news_df.copy()
 
     if text_column not in df.columns:
@@ -170,8 +189,9 @@ def aggregate_daily_sentiment(
     timestamp_column="timestamp",
 ):
     """
-    Aggregate news sentiment by calendar day.
+    Aggregate VADER news sentiment by calendar day.
     """
+
     df = news_df.copy()
 
     if timestamp_column not in df.columns:
@@ -222,6 +242,10 @@ def aggregate_daily_sentiment(
     )
 
 
+# ============================================================
+# FINBERT SENTIMENT
+# ============================================================
+
 def finbert_sentiment(
     text,
     model_name="ProsusAI/finbert",
@@ -233,7 +257,9 @@ def finbert_sentiment(
         label: positive, negative, or neutral
         score: model confidence for the predicted label
     """
+
     import torch
+
     from transformers import (
         AutoModelForSequenceClassification,
         AutoTokenizer,
@@ -306,6 +332,7 @@ def add_finbert_sentiment(
     Add FinBERT sentiment labels and confidence
     scores to a news DataFrame.
     """
+
     df = news_df.copy()
 
     if text_column not in df.columns:
@@ -314,6 +341,7 @@ def add_finbert_sentiment(
         )
 
     import torch
+
     from transformers import (
         AutoModelForSequenceClassification,
         AutoTokenizer,
@@ -389,6 +417,10 @@ def add_finbert_sentiment(
     return df
 
 
+# ============================================================
+# NEWS → TRADING SESSION
+# ============================================================
+
 def map_news_to_trading_session(
     news_df,
     trading_dates,
@@ -398,12 +430,13 @@ def map_news_to_trading_session(
     Map news timestamps to the trading session they can
     legitimately influence.
 
-    News published after 4:00 PM is assigned to the
+    News published after 4:00 PM ET is assigned to the
     next available trading session.
 
     News published before or during market hours is assigned
     to the current trading session.
     """
+
     df = news_df.copy()
 
     if timestamp_column not in df.columns:
@@ -439,7 +472,7 @@ def map_news_to_trading_session(
         .dt.tz_localize(None)
     )
 
-    # After 4:00 PM ET -> next trading session.
+    # After 4:00 PM ET → next trading session.
     after_close = (
         df["Local_Datetime"].dt.hour >= 16
     )
@@ -461,28 +494,30 @@ def map_news_to_trading_session(
 
     # Map each news date to the first available
     # trading date on or after that date.
+    def next_trading_date(date):
+        valid_dates = trading_dates[
+            trading_dates >= date
+        ]
+
+        if len(valid_dates) > 0:
+            return valid_dates[0]
+
+        return pd.NaT
+
     df["Trading_Date"] = (
         pd.to_datetime(
             df["Trading_Date"]
-        ).map(
-            lambda date: (
-                trading_dates[
-                    trading_dates >= date
-                ][0]
-                if len(
-                    trading_dates[
-                        trading_dates >= date
-                    ]
-                )
-                else pd.NaT
-            )
-        )
+        ).map(next_trading_date)
     )
 
     return df.dropna(
         subset=["Trading_Date"]
     ).copy()
 
+
+# ============================================================
+# MOMENTUM FEATURE
+# ============================================================
 
 def add_momentum_feature(
     sentiment_df,
@@ -492,9 +527,13 @@ def add_momentum_feature(
     """
     Add 3-day price momentum to daily sentiment data.
 
-    Momentum is calculated using only prices available
-    before the corresponding trading session.
+    IMPORTANT:
+    Momentum uses only prices available BEFORE the
+    corresponding trading session.
+
+    The shift(1) prevents look-ahead leakage.
     """
+
     sentiment = sentiment_df.copy()
     prices = price_df.copy()
 
@@ -509,8 +548,13 @@ def add_momentum_feature(
             f"Missing price column: {price_column}"
         )
 
+    # Calculate 3-day momentum and shift by one day
+    # so today's feature only uses information known
+    # before today's trading session.
     prices["Momentum_3D"] = (
-        prices[price_column].pct_change(3)
+        prices[price_column]
+        .pct_change(3)
+        .shift(1)
     )
 
     momentum = prices[
@@ -532,6 +576,11 @@ def add_momentum_feature(
 
     return sentiment
 
+
+# ============================================================
+# NEWS VOLUME SPIKE
+# ============================================================
+
 def add_news_volume_spike(
     sentiment_df,
     window=20,
@@ -544,9 +593,13 @@ def add_news_volume_spike(
     is at least `threshold` times the rolling average
     of the previous `window` days.
 
-    The rolling average excludes the current day to
-    avoid look-ahead.
+    The rolling average excludes the current day
+    to avoid look-ahead.
+
+    If ticker is present, calculations are performed
+    separately for each ticker.
     """
+
     df = sentiment_df.copy()
 
     if "News_Volume" not in df.columns:
@@ -554,19 +607,54 @@ def add_news_volume_spike(
             "News_Volume column is required."
         )
 
-    df = df.sort_values(
-        "Trading_Date"
-    ).copy()
-
-    rolling_volume = (
-        df["News_Volume"]
-        .shift(1)
-        .rolling(
-            window=window,
-            min_periods=5,
+    if "Trading_Date" not in df.columns:
+        raise ValueError(
+            "Trading_Date column is required."
         )
-        .mean()
+
+    df["Trading_Date"] = pd.to_datetime(
+        df["Trading_Date"]
     )
+
+    # --------------------------------------------------------
+    # Ticker-specific calculation
+    # --------------------------------------------------------
+
+    if "ticker" in df.columns:
+
+        df = df.sort_values(
+            ["ticker", "Trading_Date"]
+        ).copy()
+
+        rolling_volume = (
+            df.groupby("ticker")["News_Volume"]
+            .transform(
+                lambda x: (
+                    x.shift(1)
+                    .rolling(
+                        window=window,
+                        min_periods=5,
+                    )
+                    .mean()
+                )
+            )
+        )
+
+    else:
+
+        df = df.sort_values(
+            "Trading_Date"
+        ).copy()
+
+        rolling_volume = (
+            df["News_Volume"]
+            .shift(1)
+            .rolling(
+                window=window,
+                min_periods=5,
+            )
+            .mean()
+        )
 
     df["News_Volume_Rolling_Mean"] = (
         rolling_volume
@@ -574,7 +662,7 @@ def add_news_volume_spike(
 
     df["News_Volume_Ratio"] = (
         df["News_Volume"]
-        / rolling_volume
+        / df["News_Volume_Rolling_Mean"]
     )
 
     df["News_Volume_Spike"] = (
@@ -584,39 +672,52 @@ def add_news_volume_spike(
 
     return df
 
-def aggregate_finbert_sentiment(
-    news_df,
-    date_column="Trading_Date",
-):
-    """
-    Aggregate FinBERT sentiment by trading session.
 
-    Converts FinBERT labels into a signed sentiment score:
+# ============================================================
+# FINBERT DAILY AGGREGATION
+# ============================================================
+
+def aggregate_finbert_sentiment(df):
+    """
+    Aggregate FinBERT sentiment by ticker and trading date.
+
+    Produces one row per ticker per trading day.
+
+    FinBERT labels are converted into signed sentiment:
+
         positive -> +confidence
         neutral  -> 0
         negative -> -confidence
     """
-    df = news_df.copy()
 
     required_columns = [
-        date_column,
-        "FinBERT_Label",
+        "ticker",
+        "Trading_Date",
         "FinBERT_Score",
+        "FinBERT_Label",
     ]
 
-    for column in required_columns:
-        if column not in df.columns:
-            raise ValueError(
-                f"Missing required column: {column}"
-            )
+    missing = [
+        col
+        for col in required_columns
+        if col not in df.columns
+    ]
 
-    df[date_column] = pd.to_datetime(
-        df[date_column]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}"
+        )
+
+    data = df.copy()
+
+    data["Trading_Date"] = pd.to_datetime(
+        data["Trading_Date"]
     )
 
-    df["FinBERT_Sentiment"] = (
-        df["FinBERT_Score"]
-        * df["FinBERT_Label"].map(
+    # Convert FinBERT prediction into signed sentiment.
+    data["FinBERT_Sentiment"] = (
+        data["FinBERT_Score"]
+        * data["FinBERT_Label"].map(
             {
                 "positive": 1.0,
                 "neutral": 0.0,
@@ -625,8 +726,10 @@ def aggregate_finbert_sentiment(
         )
     )
 
-    daily = (
-        df.groupby(date_column)
+    result = (
+        data.groupby(
+            ["ticker", "Trading_Date"]
+        )
         .agg(
             FinBERT_Sentiment_Mean=(
                 "FinBERT_Sentiment",
@@ -644,12 +747,16 @@ def aggregate_finbert_sentiment(
         .reset_index()
     )
 
-    daily[
-        "FinBERT_Sentiment_Std"
-    ] = daily[
-        "FinBERT_Sentiment_Std"
-    ].fillna(0)
+    # A single article has zero dispersion.
+    result["FinBERT_Sentiment_Std"] = (
+        result["FinBERT_Sentiment_Std"]
+        .fillna(0.0)
+    )
 
-    return daily.sort_values(
-        date_column
+    return (
+        result
+        .sort_values(
+            ["ticker", "Trading_Date"]
+        )
+        .reset_index(drop=True)
     )
