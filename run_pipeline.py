@@ -43,8 +43,18 @@ def main():
         [python, "src/models_ml.py"],
     )
 
+    run_step(
+        "5. Generate Transformer production forecasts",
+        [python, "src/generate_forecasts.py"],
+    )
+
+    run_step(
+        "6. Generate stock recommendations",
+        [python, "src/recommend_pipeline.py"],
+    )
+
     print("\n" + "=" * 70)
-    print("🎉 PIPELINE COMPLETED SUCCESSFULLY")
+    print("🎉 END-TO-END PIPELINE COMPLETED SUCCESSFULLY")
     print("=" * 70)
 
 
